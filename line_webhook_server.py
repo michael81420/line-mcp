@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
 LINE Webhook Server
-接收 LINE Bot 傳入的事件，記錄最近傳訊息的使用者 User ID。
+Receives incoming events from LINE Bot and records the most recent sender User IDs.
 
-使用前請設定環境變數：
+Environment variables required:
   LINE_CHANNEL_SECRET=your_channel_secret
-  LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token  （可選，用於自動回覆）
+  LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token  (optional, for auto-reply)
 
-啟動方式：
+Startup:
   pip install fastapi uvicorn httpx --break-system-packages
   python line_webhook_server.py
 
-預設監聽 http://0.0.0.0:8000
-對外測試可使用 ngrok：ngrok http 8000
+Listens on http://0.0.0.0:8000 by default.
+For external testing, use ngrok: ngrok http 8000
 """
 
 import os
@@ -28,17 +28,17 @@ import uvicorn
 
 app = FastAPI(title="LINE Webhook Server")
 
-# 儲存收到訊息的使用者記錄（保留最近 200 筆）
-RECORDS_FILE = Path("line_recent_senders.json")
+# Store records of message senders (keep the most recent 200 entries)
+RECORDS_FILE = Path(__file__).parent / "line_recent_senders.json"
 MAX_RECORDS = 200
 
 
 # ──────────────────────────────────────────────
-# 工具函式
+# Utility functions
 # ──────────────────────────────────────────────
 
 def load_records() -> list[dict]:
-    """從檔案讀取記錄"""
+    """Load records from file."""
     if RECORDS_FILE.exists():
         try:
             return json.loads(RECORDS_FILE.read_text(encoding="utf-8"))
@@ -48,7 +48,7 @@ def load_records() -> list[dict]:
 
 
 def save_records(records: list[dict]) -> None:
-    """儲存記錄到檔案"""
+    """Save records to file."""
     RECORDS_FILE.write_text(
         json.dumps(records, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -56,11 +56,11 @@ def save_records(records: list[dict]) -> None:
 
 
 def verify_signature(body: bytes, signature: str) -> bool:
-    """驗證 LINE Webhook 簽章，防止偽造請求"""
+    """Verify LINE Webhook signature to prevent forged requests."""
     secret = os.environ.get("LINE_CHANNEL_SECRET", "")
     if not secret:
-        # 若未設定 secret，跳過驗證（僅供開發測試用）
-        print("⚠️  警告：未設定 LINE_CHANNEL_SECRET，跳過簽章驗證")
+        # Skip verification if secret is not set (development only)
+        print("WARNING: LINE_CHANNEL_SECRET is not set, skipping signature verification")
         return True
     digest = hmac.new(
         secret.encode("utf-8"), body, hashlib.sha256
@@ -70,10 +70,10 @@ def verify_signature(body: bytes, signature: str) -> bool:
 
 
 def add_sender(user_id: str, event_type: str, message_text: str = "") -> None:
-    """新增或更新傳送者記錄"""
+    """Add or update sender record."""
     records = load_records()
 
-    # 若此 user_id 已存在，更新時間與訊息
+    # If this user_id already exists, update timestamp and message
     for r in records:
         if r["userId"] == user_id:
             r["lastSeen"] = datetime.now().isoformat()
@@ -84,7 +84,7 @@ def add_sender(user_id: str, event_type: str, message_text: str = "") -> None:
             save_records(records)
             return
 
-    # 新使用者，加到最前面
+    # New user, insert at the front
     records.insert(0, {
         "userId": user_id,
         "firstSeen": datetime.now().isoformat(),
@@ -94,17 +94,17 @@ def add_sender(user_id: str, event_type: str, message_text: str = "") -> None:
         "messageCount": 1,
     })
 
-    # 只保留最近 MAX_RECORDS 筆
+    # Keep only the most recent MAX_RECORDS entries
     save_records(records[:MAX_RECORDS])
 
 
 # ──────────────────────────────────────────────
-# Webhook 接收端點
+# Webhook endpoint
 # ──────────────────────────────────────────────
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    """接收 LINE 平台送來的事件"""
+    """Receive events sent from the LINE platform."""
     body = await request.body()
     signature = request.headers.get("X-Line-Signature", "")
 
@@ -124,7 +124,7 @@ async def webhook(request: Request):
         if not user_id:
             continue
 
-        # 取出文字訊息內容（如果有的話）
+        # Extract text message content if present
         message_text = ""
         if event_type == "message":
             msg = event.get("message", {})
@@ -132,8 +132,8 @@ async def webhook(request: Request):
                 message_text = msg.get("text", "")
 
         print(f"[{datetime.now().strftime('%H:%M:%S')}] "
-              f"事件: {event_type} | userId: {user_id}"
-              + (f" | 訊息: {message_text}" if message_text else ""))
+              f"event: {event_type} | userId: {user_id}"
+              + (f" | message: {message_text}" if message_text else ""))
 
         add_sender(user_id, event_type, message_text)
 
@@ -141,23 +141,23 @@ async def webhook(request: Request):
 
 
 # ──────────────────────────────────────────────
-# 查詢端點
+# Query endpoints
 # ──────────────────────────────────────────────
 
 @app.get("/senders")
 def get_senders(limit: int = 20):
     """
-    取得最近傳訊息的使用者清單。
+    Get the list of users who recently sent messages.
 
     Query params:
-      limit: 回傳筆數（預設 20，最多 200）
+      limit: Number of results to return (default 20, max 200)
 
-    回傳範例：
+    Example response:
     [
       {
         "userId": "U4af4980629...",
         "lastSeen": "2026-04-02T10:30:00",
-        "lastMessage": "你好",
+        "lastMessage": "Hello",
         "messageCount": 5
       },
       ...
@@ -174,7 +174,7 @@ def get_senders(limit: int = 20):
 @app.get("/senders/ids")
 def get_sender_ids(limit: int = 20):
     """
-    只回傳最近傳訊息的 User ID 列表（方便直接複製使用）。
+    Return only a list of User IDs of recent message senders.
     """
     limit = min(limit, MAX_RECORDS)
     records = load_records()
@@ -191,30 +191,30 @@ def health_check():
         "status": "running",
         "recordedSenders": len(records),
         "endpoints": {
-            "POST /webhook": "LINE Webhook 接收端點",
-            "GET  /senders": "取得最近傳訊息使用者（含詳細資料）",
-            "GET  /senders/ids": "只取得 User ID 列表",
+            "POST /webhook": "LINE Webhook endpoint",
+            "GET  /senders": "Get recent message senders (with details)",
+            "GET  /senders/ids": "Get User ID list only",
         },
     }
 
 
 # ──────────────────────────────────────────────
-# 啟動
+# Startup
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     print(f"""
 ╔══════════════════════════════════════════════╗
-║        LINE Webhook Server 已啟動            ║
+║         LINE Webhook Server started          ║
 ╠══════════════════════════════════════════════╣
-║  本機網址: http://localhost:{port:<18}║
+║  Local URL : http://localhost:{port:<15}║
 ║                                              ║
-║  設定 LINE Webhook URL：                     ║
-║    https://<你的網域>/webhook               ║
+║  Set LINE Webhook URL:                       ║
+║    https://<your-domain>/webhook             ║
 ║                                              ║
-║  查詢最近傳訊息的 User ID：                  ║
-║    GET http://localhost:{port}/senders/ids    ║
+║  Query recent sender User IDs:               ║
+║    GET http://localhost:{port}/senders/ids{"":>{9 - len(str(port))}}║
 ╚══════════════════════════════════════════════╝
     """)
     uvicorn.run(app, host="0.0.0.0", port=port)

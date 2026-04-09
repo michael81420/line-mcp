@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 LINE Messaging API - MCP Server
-透過 MCP 協議與 LINE Messaging API 溝通，支援 Push Message 推播功能。
+Communicates with the LINE Messaging API via MCP protocol, supporting Push Message delivery.
 
-使用前請設定環境變數：
+Environment variables required:
   LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
 """
 
@@ -68,7 +68,7 @@ def resolve_recipient(name_or_id: str) -> tuple[str, str]:
 
 
 # ──────────────────────────────────────────────
-# Tool 1: 傳送 Push Message
+# Tool 1: Send Push Message
 # ──────────────────────────────────────────────
 
 @mcp.tool()
@@ -77,7 +77,7 @@ def send_push_message(to: str, message: str) -> str:
     Send a push message to a LINE user, group, or room.
 
     Args:
-        to: Recipient name (from line_user_id_map.json, e.g. "林涑淨")
+        to: Recipient name (from line_user_id_map.json, e.g. "John")
             or a raw LINE userId / groupId / roomId.
         message: Text message content to send.
 
@@ -131,19 +131,19 @@ def send_push_message(to: str, message: str) -> str:
 
 
 # ──────────────────────────────────────────────
-# Tool 2: 廣播訊息給所有關注者
+# Tool 2: Broadcast message to all followers
 # ──────────────────────────────────────────────
 
 @mcp.tool()
 def send_broadcast_message(message: str) -> str:
     """
-    廣播訊息給所有關注此 LINE Official Account 的使用者。
+    Broadcast a message to all users following this LINE Official Account.
 
     Args:
-        message: 要廣播的文字訊息內容
+        message: Text message content to broadcast.
 
     Returns:
-        廣播結果（成功或錯誤訊息）
+        Result of the broadcast operation (success or error message).
     """
     try:
         headers = get_headers()
@@ -164,42 +164,42 @@ def send_broadcast_message(message: str) -> str:
             )
 
         if response.status_code == 200:
-            return f"✅ 廣播訊息已成功發送給所有關注者！\n內容: {message}"
+            return f"Broadcast sent successfully to all followers.\nContent: {message}"
         else:
             try:
                 error_data = response.json()
-                error_msg = error_data.get("message", "未知錯誤")
+                error_msg = error_data.get("message", "Unknown error")
             except Exception:
                 error_msg = response.text
 
             return (
-                f"❌ 廣播失敗\n"
-                f"狀態碼: {response.status_code}\n"
-                f"錯誤: {error_msg}"
+                f"Broadcast failed\n"
+                f"Status: {response.status_code}\n"
+                f"Error: {error_msg}"
             )
 
     except ValueError as e:
-        return f"❌ 設定錯誤: {str(e)}"
+        return f"Configuration error: {str(e)}"
     except httpx.TimeoutException:
-        return "❌ 連線逾時，請確認網路連線後再試"
+        return "Connection timed out. Please check your network connection."
     except Exception as e:
-        return f"❌ 發生未預期的錯誤: {str(e)}"
+        return f"Unexpected error: {str(e)}"
 
 
 # ──────────────────────────────────────────────
-# Tool 3: 查詢使用者資料
+# Tool 3: Get user profile
 # ──────────────────────────────────────────────
 
 @mcp.tool()
 def get_user_profile(user_id: str) -> str:
     """
-    查詢 LINE 使用者的個人資料。
+    Retrieve a LINE user's profile information.
 
     Args:
-        user_id: LINE 使用者的 userId（格式: "U" + 32 位英數字）
+        user_id: LINE user ID (format: "U" + 32 alphanumeric characters)
 
     Returns:
-        使用者資料（顯示名稱、頭像網址、狀態訊息）或錯誤訊息
+        User profile (display name, picture URL, status message) or error message.
     """
     try:
         headers = get_headers()
@@ -213,34 +213,34 @@ def get_user_profile(user_id: str) -> str:
         if response.status_code == 200:
             data = response.json()
             result = (
-                f"👤 使用者資料\n"
-                f"顯示名稱: {data.get('displayName', 'N/A')}\n"
+                f"User Profile\n"
+                f"Display name: {data.get('displayName', 'N/A')}\n"
                 f"userId: {data.get('userId', 'N/A')}\n"
-                f"語言: {data.get('language', 'N/A')}\n"
-                f"狀態訊息: {data.get('statusMessage', '（無）')}\n"
-                f"頭像網址: {data.get('pictureUrl', '（無）')}"
+                f"Language: {data.get('language', 'N/A')}\n"
+                f"Status message: {data.get('statusMessage', '(none)')}\n"
+                f"Picture URL: {data.get('pictureUrl', '(none)')}"
             )
             return result
         elif response.status_code == 404:
-            return f"❌ 找不到使用者 {user_id}，請確認 userId 是否正確"
+            return f"User {user_id} not found. Please verify the userId is correct."
         else:
             try:
                 error_data = response.json()
-                error_msg = error_data.get("message", "未知錯誤")
+                error_msg = error_data.get("message", "Unknown error")
             except Exception:
                 error_msg = response.text
-            return f"❌ 查詢失敗 (狀態碼: {response.status_code}): {error_msg}"
+            return f"Query failed (status {response.status_code}): {error_msg}"
 
     except ValueError as e:
-        return f"❌ 設定錯誤: {str(e)}"
+        return f"Configuration error: {str(e)}"
     except httpx.TimeoutException:
-        return "❌ 連線逾時，請確認網路連線後再試"
+        return "Connection timed out. Please check your network connection."
     except Exception as e:
-        return f"❌ 發生未預期的錯誤: {str(e)}"
+        return f"Unexpected error: {str(e)}"
 
 
 # ──────────────────────────────────────────────
-# Tool 4: 傳送 Flex Message（進階排版訊息）
+# Tool 4: Send Flex Message (rich layout message)
 # ──────────────────────────────────────────────
 
 @mcp.tool()
@@ -249,7 +249,7 @@ def send_flex_message(to: str, alt_text: str, flex_content: str) -> str:
     Send a Flex Message (rich layout message) to a LINE user or group.
 
     Args:
-        to: Recipient name (from line_user_id_map.json, e.g. "林涑淨")
+        to: Recipient name (from line_user_id_map.json, e.g. "John")
             or a raw LINE userId / groupId.
         alt_text: Fallback text shown in push notifications.
         flex_content: Flex Message container as a JSON string.
