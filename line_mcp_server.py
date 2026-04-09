@@ -12,24 +12,59 @@ import json
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# 初始化 MCP Server
+# Initialize MCP Server
 mcp = FastMCP("LINE Messaging API")
 
 LINE_API_BASE = "https://api.line.me/v2/bot"
+USER_ID_MAP_PATH = os.path.join(os.path.dirname(__file__), "line_user_id_map.json")
 
 
 def get_headers() -> dict:
-    """取得 LINE API 驗證 headers"""
+    """Get LINE API authorization headers."""
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not token:
         raise ValueError(
-            "請設定環境變數 LINE_CHANNEL_ACCESS_TOKEN\n"
-            "可至 LINE Developers Console 取得 Channel Access Token"
+            "Please set the LINE_CHANNEL_ACCESS_TOKEN environment variable.\n"
+            "You can get the Channel Access Token from the LINE Developers Console."
         )
     return {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
+
+
+def load_user_id_map() -> dict:
+    """Load name -> userId mapping from line_user_id_map.json."""
+    try:
+        with open(USER_ID_MAP_PATH, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+        return {entry["name"]: entry["userId"] for entry in entries if "name" in entry and "userId" in entry}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+
+def resolve_recipient(name_or_id: str) -> tuple[str, str]:
+    """Resolve a name or raw ID to a userId.
+
+    Returns:
+        (userId, display_label) tuple.
+    Raises:
+        ValueError if the name is not found in the map.
+    """
+    user_map = load_user_id_map()
+    if name_or_id in user_map:
+        return user_map[name_or_id], name_or_id
+    # Not a known name — treat as a raw ID
+    if name_or_id.startswith(("U", "C", "R")):
+        return name_or_id, name_or_id
+    known = ", ".join(user_map.keys()) if user_map else "(none)"
+    raise ValueError(
+        f"Unknown recipient '{name_or_id}'.\n"
+        f"Known contacts: {known}\n"
+        "Pass a name from line_user_id_map.json or a raw LINE userId/groupId."
+    )
 
 
 # ──────────────────────────────────────────────
@@ -39,27 +74,22 @@ def get_headers() -> dict:
 @mcp.tool()
 def send_push_message(to: str, message: str) -> str:
     """
-    傳送 Push Message 給指定的 LINE 使用者、群組或聊天室。
+    Send a push message to a LINE user, group, or room.
 
     Args:
-        to: 收件人的 userId、groupId 或 roomId
-            - userId 範例: "U4af4980629..."
-            - groupId 範例: "C4af4980629..."
-        message: 要傳送的文字訊息內容
+        to: Recipient name (from line_user_id_map.json, e.g. "林涑淨")
+            or a raw LINE userId / groupId / roomId.
+        message: Text message content to send.
 
     Returns:
-        傳送結果（成功或錯誤訊息）
+        Result of the send operation (success or error message).
     """
     try:
+        user_id, label = resolve_recipient(to)
         headers = get_headers()
         payload = {
-            "to": to,
-            "messages": [
-                {
-                    "type": "text",
-                    "text": message,
-                }
-            ],
+            "to": user_id,
+            "messages": [{"type": "text", "text": message}],
         }
 
         with httpx.Client(timeout=30) as client:
@@ -70,11 +100,11 @@ def send_push_message(to: str, message: str) -> str:
             )
 
         if response.status_code == 200:
-            return f"✅ 訊息已成功傳送！\n收件人: {to}\n內容: {message}"
+            return f"Message sent successfully.\nRecipient: {label}\nContent: {message}"
         else:
             try:
                 error_data = response.json()
-                error_msg = error_data.get("message", "未知錯誤")
+                error_msg = error_data.get("message", "Unknown error")
                 details = error_data.get("details", [])
                 detail_str = (
                     "\n".join(f"  - {d.get('message', '')}" for d in details)
@@ -86,18 +116,18 @@ def send_push_message(to: str, message: str) -> str:
                 detail_str = ""
 
             return (
-                f"❌ 傳送失敗\n"
-                f"狀態碼: {response.status_code}\n"
-                f"錯誤: {error_msg}"
-                + (f"\n詳情:\n{detail_str}" if detail_str else "")
+                f"Send failed\n"
+                f"Status: {response.status_code}\n"
+                f"Error: {error_msg}"
+                + (f"\nDetails:\n{detail_str}" if detail_str else "")
             )
 
     except ValueError as e:
-        return f"❌ 設定錯誤: {str(e)}"
+        return f"Configuration error: {str(e)}"
     except httpx.TimeoutException:
-        return "❌ 連線逾時，請確認網路連線後再試"
+        return "Connection timed out. Please check your network connection."
     except Exception as e:
-        return f"❌ 發生未預期的錯誤: {str(e)}"
+        return f"Unexpected error: {str(e)}"
 
 
 # ──────────────────────────────────────────────
@@ -216,17 +246,15 @@ def get_user_profile(user_id: str) -> str:
 @mcp.tool()
 def send_flex_message(to: str, alt_text: str, flex_content: str) -> str:
     """
-    傳送 Flex Message（支援自訂排版的進階訊息）給指定使用者。
+    Send a Flex Message (rich layout message) to a LINE user or group.
 
     Args:
-        to: 收件人的 userId 或 groupId
-        alt_text: 通知欄顯示的替代文字（推播通知用）
-        flex_content: Flex Message 的 JSON 字串內容（container 物件）
+        to: Recipient name (from line_user_id_map.json, e.g. "林涑淨")
+            or a raw LINE userId / groupId.
+        alt_text: Fallback text shown in push notifications.
+        flex_content: Flex Message container as a JSON string.
 
-    Returns:
-        傳送結果
-
-    範例 flex_content（泡泡卡片）:
+    Example flex_content (bubble card):
     {
       "type": "bubble",
       "body": {
@@ -237,18 +265,21 @@ def send_flex_message(to: str, alt_text: str, flex_content: str) -> str:
         ]
       }
     }
+
+    Returns:
+        Result of the send operation.
     """
     try:
+        user_id, label = resolve_recipient(to)
         headers = get_headers()
 
-        # 解析 Flex content JSON
         try:
             flex_obj = json.loads(flex_content)
         except json.JSONDecodeError as e:
-            return f"❌ flex_content JSON 格式錯誤: {str(e)}"
+            return f"Invalid flex_content JSON: {str(e)}"
 
         payload = {
-            "to": to,
+            "to": user_id,
             "messages": [
                 {
                     "type": "flex",
@@ -266,21 +297,41 @@ def send_flex_message(to: str, alt_text: str, flex_content: str) -> str:
             )
 
         if response.status_code == 200:
-            return f"✅ Flex Message 已成功傳送！\n收件人: {to}\n替代文字: {alt_text}"
+            return f"Flex Message sent successfully.\nRecipient: {label}\nAlt text: {alt_text}"
         else:
             try:
                 error_data = response.json()
-                error_msg = error_data.get("message", "未知錯誤")
+                error_msg = error_data.get("message", "Unknown error")
             except Exception:
                 error_msg = response.text
-            return f"❌ 傳送失敗 (狀態碼: {response.status_code}): {error_msg}"
+            return f"Send failed (status {response.status_code}): {error_msg}"
 
     except ValueError as e:
-        return f"❌ 設定錯誤: {str(e)}"
+        return f"Configuration error: {str(e)}"
     except httpx.TimeoutException:
-        return "❌ 連線逾時，請確認網路連線後再試"
+        return "Connection timed out. Please check your network connection."
     except Exception as e:
-        return f"❌ 發生未預期的錯誤: {str(e)}"
+        return f"Unexpected error: {str(e)}"
+
+
+# ──────────────────────────────────────────────
+# Tool 5: List known contacts
+# ──────────────────────────────────────────────
+
+@mcp.tool()
+def list_contacts() -> str:
+    """
+    List all named contacts available in line_user_id_map.json.
+
+    Returns:
+        A list of contact names that can be used with send_push_message
+        and send_flex_message.
+    """
+    user_map = load_user_id_map()
+    if not user_map:
+        return "No contacts found in line_user_id_map.json."
+    lines = [f"- {name}" for name in user_map]
+    return "Available contacts:\n" + "\n".join(lines)
 
 
 if __name__ == "__main__":

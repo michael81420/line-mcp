@@ -9,10 +9,11 @@
 
 | Tool | 說明 |
 |------|------|
-| `send_push_message` | 傳送文字訊息給指定 userId / groupId |
+| `send_push_message` | 傳送文字訊息給指定聯絡人名稱或 userId / groupId |
 | `send_broadcast_message` | 廣播訊息給所有關注者 |
 | `get_user_profile` | 查詢 LINE 使用者個人資料 |
 | `send_flex_message` | 傳送自訂排版的 Flex Message |
+| `list_contacts` | 列出 `line_user_id_map.json` 中所有已命名的聯絡人 |
 
 ---
 
@@ -32,7 +33,34 @@ pip install -r requirements.txt
 4. 進入 Channel → **Messaging API** 頁籤
 5. 在 **Channel access token** 區塊點選 **Issue**，複製 Token
 
-### 3. 設定 Claude Desktop
+### 3. 設定聯絡人對照表（選用）
+
+複製範例檔並填入你的聯絡人資訊，讓你可以用名字而非原始 userId 傳送訊息：
+
+```bash
+cp line_user_id_map.example.json line_user_id_map.json
+```
+
+`line_user_id_map.json` 格式：
+
+```json
+[
+  {
+    "userId": "U4af4980629xxxxxxxxxxxxxxxxxxxxxxx",
+    "name": "Alice"
+  },
+  {
+    "userId": "Uabcdef1234xxxxxxxxxxxxxxxxxxxxxxx",
+    "name": "Bob"
+  }
+]
+```
+
+> **注意**: `line_user_id_map.json` 含有私人資料，已列入 `.gitignore`，不會被提交至版本控制。
+
+### 4. 設定客戶端
+
+#### Claude Desktop
 
 開啟 Claude Desktop 的設定檔：
 
@@ -55,17 +83,54 @@ pip install -r requirements.txt
 }
 ```
 
+#### Claude Code（CLI）
+
+可透過指令自動註冊（推薦）：
+
+```bash
+claude mcp add line-messaging -- python /absolute/path/to/line-mcp/line_mcp_server.py
+```
+
+然後設定環境變數（可加入 `.env` 或 shell profile）：
+
+```bash
+export LINE_CHANNEL_ACCESS_TOKEN=你的_Channel_Access_Token
+```
+
+或直接編輯全域設定檔手動加入：
+
+- **macOS / Linux**: `~/.claude.json`
+- **Windows**: `%USERPROFILE%\.claude.json`
+
+```json
+{
+  "mcpServers": {
+    "line-messaging": {
+      "command": "python",
+      "args": ["/absolute/path/to/line-mcp/line_mcp_server.py"],
+      "env": {
+        "LINE_CHANNEL_ACCESS_TOKEN": "你的_Channel_Access_Token"
+      }
+    }
+  }
+}
+```
+
 > **重要**: `args` 中的路徑必須是**絕對路徑**。
 
-### 4. 重新啟動 Claude Desktop
+### 5. 重新啟動客戶端
 
-儲存設定後重新啟動 Claude Desktop，即可在對話中使用 LINE 相關工具。
+儲存設定後重新啟動 Claude Desktop 或重新載入 Claude Code，即可在對話中使用 LINE 相關工具。
 
 ---
 
 ## 使用範例
 
 在 Claude 中直接輸入：
+
+```
+傳送 LINE 訊息給「Alice」，內容是「你好！」
+```
 
 ```
 傳送 LINE 訊息給 userId "U1234567890abcdef"，內容是「你好！」
@@ -79,6 +144,10 @@ pip install -r requirements.txt
 查詢 LINE 使用者 U1234567890abcdef 的個人資料
 ```
 
+```
+列出所有可用的聯絡人
+```
+
 ---
 
 ## 如何取得 userId
@@ -87,7 +156,7 @@ pip install -r requirements.txt
 
 1. 在 LINE Developers Console 設定 Webhook URL
 2. 當使用者傳訊息給你的 Bot，Webhook 會收到含有 `userId` 的事件
-3. 記錄該 `userId` 即可用於 Push Message
+3. 記錄該 `userId` 並填入 `line_user_id_map.json`，即可用名字直接傳送訊息
 
 > 詳細的 Webhook 伺服器架設與 userId 查詢方式，請參閱 [LINE Webhook Server — 操作說明](#line-webhook-server--操作說明)。
 
@@ -99,6 +168,7 @@ pip install -r requirements.txt
 - 廣播訊息會發送給**所有關注者**，請謹慎使用
 - 免費方案每月有**訊息數量限制**，詳見 [LINE 官方定價](https://www.linebiz.com/tw/service/line-official-account/plan/)
 - Channel Access Token 請**妥善保管**，勿提交至版本控制系統
+- `line_user_id_map.json` 含有使用者私人資料，同樣勿提交至版本控制系統
 
 ---
 
@@ -147,4 +217,4 @@ python line_webhook_server.py
    ```
    所有記錄同時會儲存在伺服器同目錄的 `line_recent_senders.json`，最多保留 200 筆。
 
-5. 將取得的 `userId` 用於 `send_push_message` 等 MCP 工具。
+5. 將取得的 `userId` 填入 `line_user_id_map.json`，並設定對應的名稱，即可在 `send_push_message` 等 MCP 工具中用名字傳送訊息。
